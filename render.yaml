@@ -1,0 +1,29 @@
+# Render Blueprint：New → Blueprint 選這個 repo 即可
+services:
+  - type: web
+    name: fgo-online
+    runtime: node
+    rootDir: server
+    plan: starter            # Persistent Disk 需要付費方案；免費方案資料會在重新部署／休眠重啟時清空
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /var/data
+      - key: GM_USER         # GM 測試帳號名稱
+        value: GM
+      - key: GM_PASS         # GM 密碼（Render 自動產生，到 Environment 頁面查看）
+        generateValue: true
+      - key: PVP_MUL          # 連線對戰生命倍率
+        value: "10"
+      - key: HONOR_CAP        # 連線對戰每人每日榮譽上限
+        value: "500"
+      - key: TZ_OFFSET_HOURS  # 每日換日時區（8＝台灣）
+        value: "8"
+    disk:
+      name: fgo-data
+      mountPath: /var/data
+      sizeGB: 1
