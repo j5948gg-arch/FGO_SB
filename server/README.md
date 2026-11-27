@@ -1,4 +1,16 @@
-# FGO 連線伺服器
+# FGO 連線伺服器（Supabase 版）
+
+> 這一版把帳號、雲端存檔、積分改存 **Supabase**（Postgres＋Auth），伺服器本身**不再需要硬碟**。
+> Supabase 負責資料；這個 Node 程式（WebSocket 配對與對戰轉送）要放在能常駐執行的主機（Render／Fly.io／Railway／VPS）。
+> 前端遊戲檔（gacha.html）不用改，API 與舊版相同。
+
+## Supabase 版部署步驟
+1. Supabase 建立專案 → **SQL Editor** 貼上 `supabase/schema.sql` 執行一次。
+2. **Settings → API Keys** 取得 `Project URL`、`anon`（publishable）、`service_role`（secret）。
+3. **Authentication → Sign In / Providers → Email**：關閉「Confirm email」不影響（伺服器用 admin API 建帳號，已自動確認）；建議關閉「Allow new users to sign up」，避免有人繞過遊戲伺服器直接向 Supabase 註冊。
+4. 在主機設定環境變數：`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY`、`GM_USER`、`GM_PASS`（其餘見下表）。`service_role` 金鑰只能放這裡，**不可** commit 到 GitHub。
+5. 啟動後 log 出現 `FGO server listening` 即完成；第一次啟動會自動建立 GM 帳號。
+
 
 提供：帳號（註冊／登入）、雲端存檔、連線對戰（快速配對／房間代碼）、積分（Elo）與排行榜。
 只依賴 Node.js 18+ 與 `ws`。遊戲檔 `gacha.html` 由同一個伺服器提供，所以玩家直接開伺服器網址就能玩。
@@ -17,8 +29,8 @@ npm start            # 預設 http://localhost:3000
 | 變數 | 預設 | 說明 |
 |---|---|---|
 | `PORT` | 3000 | 監聽埠 |
-| `DATA_DIR` | `./data` | 帳號、存檔、簽章金鑰存放處（**請定期備份**） |
-| `SECRET` | 自動產生並存到 `data/secret.key` | 登入憑證簽章金鑰；多台伺服器要設成同一個 |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | 必填 | Supabase 專案連線資訊 |
+| `SECRET` | 由 service_role 金鑰衍生 | 登入憑證簽章金鑰（可自訂；更換後所有人需重新登入） |
 | `GAME_FILE` | `./public/gacha.html` | 要提供給玩家的遊戲檔 |
 | `PVP_MUL` | 10 | 連線對戰雙方生命倍率（由伺服器統一下發，兩端一致） |
 | `HONOR_CAP` | 500 | 連線對戰每人每日榮譽上限（伺服器統計） |
@@ -56,6 +68,7 @@ docker build -t fgo-server . && docker run -d -p 3000:3000 -v fgo-data:/data --r
 
 
 ## 部署到 Render
+（Supabase 版：不需要 Persistent Disk，下列第 4 點已不適用。）
 repo 根目錄已附 `render.yaml`（Blueprint）。步驟：
 1. 把整個 repo 推到 GitHub（`server/public/gacha.html` 要一起 commit；步驟見根目錄 README.md）。
 2. Render → New → Blueprint → 選這個 repo → 套用。它會建立一個 Web Service（Root Directory 為 `server`、Build `npm install`、Start `node server.js`），並自動產生 `SECRET`。

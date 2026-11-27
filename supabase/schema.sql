@@ -1,34 +1,40 @@
--- FGO × Supabase 資料表草稿（尚未在實際專案上執行過；貼進 SQL Editor 前請先看過一遍）
--- 對應目前 server.js 的資料：users.json → profiles，saves/*.json → saves（存檔 blob 改用 jsonb）。
--- 帳號密碼交給 Supabase Auth；GM 帳號請先在 Auth 後台建立，再執行最後一行把它設成 role='gm'。
+-- FGO × Supabase 資料表（Supabase 版 server.js 使用）
+-- 使用方式：Supabase → SQL Editor → New query → 整份貼上 → Run（只需執行一次）
+-- 設計：遊戲前端只連你的 Node 伺服器；Node 伺服器用 service_role key 讀寫資料庫（繞過 RLS）。
+--       所以所有表都開 RLS 且「不建任何 policy」＝ 外部用 anon key 完全讀不到、寫不進去。
+-- 帳號密碼交給 Supabase Auth（伺服器註冊時以 admin API 建立，username 放在 user_metadata）。
 
 create table public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
-  username    text unique not null check (char_length(username) between 2 and 16),
+  username    text not null check (char_length(username) between 2 and 16),
   role        text not null default 'player' check (role in ('player','gm')),
   rating      int  not null default 1000,
   w int not null default 0, l int not null default 0, d int not null default 0,
   created_at  timestamptz not null default now()
+);
+create unique index profiles_username_lower on public.profiles (lower(username));   -- 帳號不分大小寫
+
+-- 伺服器私有狀態：擁有的角色（選角驗證用）、每日榮譽統計
+create table public.player_state (
+  user_id     uuid primary key references public.profiles(id) on delete cascade,
+  owned       jsonb,
+  honor_day   text,
+  honor_n     int not null default 0
 );
 
 create table public.saves (
   user_id     uuid primary key references public.profiles(id) on delete cascade,
   rev         int  not null default 0,
   updated_at  timestamptz not null default now(),
-  blob        jsonb not null            -- 就是遊戲的存檔 JSON（owned、wallet、tut …）
+  blob        jsonb not null            -- 遊戲存檔 JSON（owned、wallet、tut …）
 );
 
-alter table public.profiles enable row level security;
-alter table public.saves    enable row level security;
+alter table public.profiles     enable row level security;
+alter table public.player_state enable row level security;
+alter table public.saves        enable row level security;
+-- 故意不建立任何 policy：只有 service_role（你的 Node 伺服器）能存取。
 
--- profiles：大家都能讀（排行榜）；不開放 insert/update，玩家無法自己改 role、積分
-create policy profiles_read on public.profiles for select using (true);
--- saves：只能讀寫自己的
-create policy saves_select on public.saves for select using (auth.uid() = user_id);
-create policy saves_insert on public.saves for insert with check (auth.uid() = user_id);
-create policy saves_update on public.saves for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
--- 註冊後自動建立 profile（username 取自註冊時的 user_metadata.username，沒有就取 email 前半）
+-- 註冊後自動建立 profile（username 取自 user_metadata.username）
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -56,5 +62,4 @@ end $$;
 create trigger saves_clamp_wallet before insert or update on public.saves
   for each row execute function public.clamp_wallet();
 
--- GM 帳號（先在 Auth 後台建立帳號，username 填 GM）：
--- update public.profiles set role = 'gm' where username = 'GM';
+-- GM 帳號不用手動建：伺服器第一次啟動會依 GM_USER／GM_PASS 自動建立並設為 role='gm'。
